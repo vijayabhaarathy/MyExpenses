@@ -3,13 +3,7 @@ import pandas as pd
 import re
 from datetime import datetime
 
-# File paths (adjust if needed)
-#axis_pdf = "D:\DSE\Expenses\Jul2025_Axis_Credit Card Statement.pdf"
-#hdfc_diners_pdf = "D:\DSE\Expenses\Jul2025_Billedstatements_4240_04-08-25_10-53.pdf"
-#hdfc_milli_pdf = "D:\DSE\Expenses\Jul2025_Billedstatements_8069_04-08-25_10-51.pdf"
-#savings_pdf = "D:\DSE\Expenses\Jul2025_Acct_Statement_XXXXXXXX0344_04082025.pdf"
-
-def extract_axis_transactions(pdf_path):
+def extract_axis_transactions(file_obj):
     """
     Extracts structured transaction data from an Axis credit card PDF.
     Returns a list of dictionaries with keys matching the target output schema.
@@ -75,13 +69,7 @@ def extract_axis_transactions(pdf_path):
 
     return transactions
 
-# Run the extractor
-axis_data = extract_axis_transactions(axis_pdf)
-
-# Convert to DataFrame for preview
-df_axis = pd.DataFrame(axis_data)
-
-def extract_hdfc_credit_transactions(pdf_path, card_label):
+def extract_hdfc_credit_transactions(file_obj, card_label):
     """
     Extracts transactions from an HDFC credit card PDF (Diners/Milli).
     Returns a list of dictionaries in the unified schema.
@@ -163,7 +151,7 @@ def extract_hdfc_credit_transactions(pdf_path, card_label):
 
     return transactions
 
-def extract_hdfc_savings_transactions(pdf_path):
+def extract_hdfc_savings_transactions(file_obj):
     transactions = []
     prev_balance = None  # used to detect Credit/Debit by comparing balance shifts
 
@@ -226,25 +214,6 @@ def extract_hdfc_savings_transactions(pdf_path):
 
     return transactions
 
-savings_data = extract_hdfc_savings_transactions(savings_pdf)
-df_savings = pd.DataFrame(savings_data)
-
-#print("✅ HDFC Savings Account - Sample Transactions:")
-#df_savings.head()
-
-
-# Extract HDFC Diners and Milli
-hdfc_diners_data = extract_hdfc_credit_transactions(hdfc_diners_pdf, "HDFC Diners")
-hdfc_milli_data = extract_hdfc_credit_transactions(hdfc_milli_pdf, "HDFC Millennia")
-
-# Combine into DataFrames
-df_diners = pd.DataFrame(hdfc_diners_data)
-df_milli = pd.DataFrame(hdfc_milli_data)
-
-
-# Combine all into one DataFrame
-df_combined = pd.concat([df_axis, df_diners, df_milli, df_savings], ignore_index=True)
-
 # Make a copy to preserve full descriptions if needed later
 df_combined["Transaction"] = df_combined["Transaction"].apply(
     lambda x: x[:60] + "..." if isinstance(x, str) and len(x) > 60 else x
@@ -254,12 +223,6 @@ df_combined["Transaction"] = df_combined["Transaction"].apply(
 df_combined["Amount"] = df_combined["Amount"].apply(
     lambda x: f"₹{x:,.2f}" if pd.notnull(x) else ""
 )
-
-# Optional: sort by date
-df_combined.sort_values(by="Date", inplace=True)
-
-# Export to Excel
-df_combined.to_excel("Expenses_Combined_v2.xlsx", index=False)
 
 def extract_all_transactions(file_obj, filename):
     if "axis" in filename.lower():
@@ -272,4 +235,5 @@ def extract_all_transactions(file_obj, filename):
         return extract_hdfc_savings_transactions(file_obj)
     else:
         return []
+
 
