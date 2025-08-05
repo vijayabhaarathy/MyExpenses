@@ -8,7 +8,7 @@ import os
 import pandas as pd
 
 def main(blob: func.InputStream):
-    logging.info("🚀 Function loaded successfully.")
+    logging.info("New attempt!")
 
     logging.info(f"Triggered by blob: {blob.name}, Size: {blob.length} bytes")
 
