@@ -215,14 +215,14 @@ def extract_hdfc_savings_transactions(file_obj):
     return transactions
 
 # Make a copy to preserve full descriptions if needed later
-df_combined["Transaction"] = df_combined["Transaction"].apply(
-    lambda x: x[:60] + "..." if isinstance(x, str) and len(x) > 60 else x
-)
+#df_combined["Transaction"] = df_combined["Transaction"].apply(
+#    lambda x: x[:60] + "..." if isinstance(x, str) and len(x) > 60 else x
+#)
 
 # Format the amount in INR
-df_combined["Amount"] = df_combined["Amount"].apply(
-    lambda x: f"₹{x:,.2f}" if pd.notnull(x) else ""
-)
+#df_combined["Amount"] = df_combined["Amount"].apply(
+#    lambda x: f"₹{x:,.2f}" if pd.notnull(x) else ""
+#)
 
 def extract_all_transactions(file_obj, filename):
     if "axis" in filename.lower():
@@ -235,5 +235,6 @@ def extract_all_transactions(file_obj, filename):
         return extract_hdfc_savings_transactions(file_obj)
     else:
         return []
+
 
 
