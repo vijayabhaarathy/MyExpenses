@@ -1,7 +1,7 @@
 import logging
 import json
 import azure.functions as func
-from .PDFExtracter_v2 import extract_all_transactions
+from PDFExtracter_v2 import extract_all_transactions
 
 # Import the BlobServiceClient and other necessary libraries
 from azure.storage.blob import BlobServiceClient
