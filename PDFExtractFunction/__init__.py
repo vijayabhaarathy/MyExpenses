@@ -1,49 +1,55 @@
 import logging
+import json
 import azure.functions as func
-from azure.storage.blob import BlobClient
-from io import BytesIO
-from PDFExtracter import extract_all_transactions
-import pyodbc
-import os
-import pandas as pd
+from .PDFExtracter_v2 import extract_all_transactions
 
-def main(blob: func.InputStream):
-    logging.info("New attempt!")
+# Import the BlobServiceClient and other necessary libraries
+from azure.storage.blob import BlobServiceClient
 
-    logging.info(f"Triggered by blob: {blob.name}, Size: {blob.length} bytes")
+def main(req: func.HttpRequest) -> func.HttpResponse:
+    logging.info('Python HTTP trigger function processed a request.')
 
-    # Read PDF from blob
-    pdf_bytes = blob.read()
-    pdf_file = BytesIO(pdf_bytes)
+    try:
+        req_body = req.get_json()
+    except ValueError:
+        return func.HttpResponse("Please pass a JSON object in the request body.", status_code=400)
 
-    # Extract transactions
-    transactions = extract_all_transactions(pdf_file, blob.name)
+    file_path = req_body.get('filePath')
 
-    if not transactions:
-        logging.warning("No transactions extracted.")
-        return
+    if not file_path:
+        return func.HttpResponse(
+            "Please pass 'filePath' in the request body",
+            status_code=400
+        )
 
-    df = pd.DataFrame(transactions)
+    try:
+        # Connect to Blob Storage
+        connect_str = "DefaultEndpointsProtocol=https;AccountName=<your_storage_account_name>;AccountKey=<your_storage_account_key>;EndpointSuffix=core.windows.net" # or use environment variable
+        blob_service_client = BlobServiceClient.from_connection_string(connect_str)
+        blob_client = blob_service_client.get_blob_client(container="pdf-statements", blob=file_path.split("/")[-1])
 
-    # DB connection (store values in App Settings)
-    server = os.environ["SQL_SERVER"]
-    database = os.environ["SQL_DATABASE"]
-    username = os.environ["SQL_USERNAME"]
-    password = os.environ["SQL_PASSWORD"]
-    driver = "{ODBC Driver 17 for SQL Server}"
+        # Download the PDF file content
+        pdf_data = blob_client.download_blob().readall()
 
-    conn_str = f"DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}"
-    conn = pyodbc.connect(conn_str)
-    cursor = conn.cursor()
+        # Pass the file data to your extractor
+        transactions = extract_all_transactions(pdf_data, file_path)
 
-    for _, row in df.iterrows():
-        cursor.execute("""
-            INSERT INTO Expenses (Date, Month, Year, Card, CardType, Transaction, Amount, CreditDebit, SubCategory, Category)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, row.Date, row.Month, row.Year, row.Card, row["Card Type"], row.Transaction, float(str(row.Amount).replace("₹", "").replace(",", "")), row["Credit/Debit"], row["Sub-Category"], row["Category"])
+        if transactions:
+            # Process the data (e.g., save to SQL) and return a success message
+            return func.HttpResponse(
+                json.dumps({"status": "success", "message": f"Successfully processed {len(transactions)} transactions from {file_path}"}),
+                mimetype="application/json"
+            )
+        else:
+            return func.HttpResponse(
+                "No transactions found in the PDF.",
+                status_code=200,
+                mimetype="application/json"
+            )
 
-    conn.commit()
-    cursor.close()
-    conn.close()
-
-    logging.info(f"Inserted {len(df)} transactions to SQL DB.")
+    except Exception as e:
+        logging.error(f"Error processing PDF: {e}")
+        return func.HttpResponse(
+            f"An error occurred: {e}",
+            status_code=500
+        )
