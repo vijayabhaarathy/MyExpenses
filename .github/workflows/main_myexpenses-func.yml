@@ -5,14 +5,14 @@
 name: Build and deploy Python project to Azure Function App - myexpenses-func
 
 on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
 env:
-  AZURE_FUNCTIONAPP_PACKAGE_PATH: '.' # set this to the path to your web app project, defaults to the repository root
-  PYTHON_VERSION: '3.12' # set this to the python version to use
+  AZURE_FUNCTIONAPP_PACKAGE_PATH: '.' # Assumes your host.json and requirements.txt are in the repository root
+  PYTHON_VERSION: '3.12' 
 
 jobs:
   build-and-deploy:
