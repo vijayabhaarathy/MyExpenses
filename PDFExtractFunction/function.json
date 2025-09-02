@@ -2,16 +2,11 @@
   "scriptFile": "__init__.py",
   "bindings": [
     {
-      "authLevel": "anonymous",
-      "type": "httpTrigger",
+      "name": "blob",
+      "type": "blobTrigger",
       "direction": "in",
-      "name": "req",
-      "methods": ["post"]
-    },
-    {
-      "type": "http",
-      "direction": "out",
-      "name": "$return"
+      "path": "input-pdfs/{name}",
+      "connection": "AzureWebJobsStorage"
     }
   ]
 }
