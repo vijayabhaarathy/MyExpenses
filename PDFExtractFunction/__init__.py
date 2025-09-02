@@ -1,55 +1,54 @@
 import logging
+import os
 import json
 import azure.functions as func
-from PDFExtracter_v2 import extract_all_transactions
+from azure.ai.formrecognizer import DocumentAnalysisClient
+from azure.core.credentials import AzureKeyCredential
 
-# Import the BlobServiceClient and other necessary libraries
-from azure.storage.blob import BlobServiceClient
+# Environment variables (set in Function App > Configuration)
+FORM_RECOGNIZER_ENDPOINT = os.getenv("FORM_RECOGNIZER_ENDPOINT")
+FORM_RECOGNIZER_KEY = os.getenv("FORM_RECOGNIZER_KEY")
 
-def main(req: func.HttpRequest) -> func.HttpResponse:
-    logging.info('Python HTTP trigger function processed a request.')
+def main(blob: func.InputStream):
+    logging.info(f"Triggered by blob: {blob.name}, Size: {blob.length} bytes")
 
     try:
-        req_body = req.get_json()
-    except ValueError:
-        return func.HttpResponse("Please pass a JSON object in the request body.", status_code=400)
-
-    file_path = req_body.get('filePath')
-
-    if not file_path:
-        return func.HttpResponse(
-            "Please pass 'filePath' in the request body",
-            status_code=400
+        # Init Form Recognizer client
+        client = DocumentAnalysisClient(
+            endpoint=FORM_RECOGNIZER_ENDPOINT,
+            credential=AzureKeyCredential(FORM_RECOGNIZER_KEY)
         )
 
-    try:
-        # Connect to Blob Storage
-        connect_str = "DefaultEndpointsProtocol=https;AccountName=<your_storage_account_name>;AccountKey=<your_storage_account_key>;EndpointSuffix=core.windows.net" # or use environment variable
-        blob_service_client = BlobServiceClient.from_connection_string(connect_str)
-        blob_client = blob_service_client.get_blob_client(container="pdf-statements", blob=file_path.split("/")[-1])
+        # Analyze PDF with prebuilt-document model
+        poller = client.begin_analyze_document(
+            model_id="prebuilt-document",
+            document=blob.read()
+        )
+        result = poller.result()
 
-        # Download the PDF file content
-        pdf_data = blob_client.download_blob().readall()
+        extracted_data = {"fileName": blob.name, "pages": [], "tables": []}
 
-        # Pass the file data to your extractor
-        transactions = extract_all_transactions(pdf_data, file_path)
+        # Extract text lines
+        for page_idx, page in enumerate(result.pages):
+            lines = [line.content for line in page.lines]
+            extracted_data["pages"].append({
+                "pageNumber": page_idx + 1,
+                "lines": lines
+            })
 
-        if transactions:
-            # Process the data (e.g., save to SQL) and return a success message
-            return func.HttpResponse(
-                json.dumps({"status": "success", "message": f"Successfully processed {len(transactions)} transactions from {file_path}"}),
-                mimetype="application/json"
-            )
-        else:
-            return func.HttpResponse(
-                "No transactions found in the PDF.",
-                status_code=200,
-                mimetype="application/json"
-            )
+        # Extract tables
+        for table in result.tables:
+            rows = []
+            for row_idx in range(table.row_count):
+                row = [cell.content for cell in table.cells if cell.row_index == row_idx]
+                rows.append(row)
+            extracted_data["tables"].append(rows)
+
+        # Log preview
+        logging.info(f"Extracted JSON preview: {json.dumps(extracted_data, indent=2)[:500]}")
+
+        # TODO: Insert into SQL DB in Phase 2
+        # For now, just log the extracted content
 
     except Exception as e:
-        logging.error(f"Error processing PDF: {e}")
-        return func.HttpResponse(
-            f"An error occurred: {e}",
-            status_code=500
-        )
+        logging.error(f"Error processing {blob.name}: {str(e)}")
