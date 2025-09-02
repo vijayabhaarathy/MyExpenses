@@ -1,240 +1,39 @@
-import pdfplumber
-import pandas as pd
-import re
-from datetime import datetime
+import logging
+import os
+import azure.functions as func
+from azure.ai.formrecognizer import DocumentAnalysisClient
+from azure.core.credentials import AzureKeyCredential
 
-def extract_axis_transactions(file_obj):
-    """
-    Extracts structured transaction data from an Axis credit card PDF.
-    Returns a list of dictionaries with keys matching the target output schema.
-    """
-    transactions = []
+# Use environment variables for security
+endpoint = os.getenv("FORM_RECOGNIZER_ENDPOINT")
+key = os.getenv("FORM_RECOGNIZER_KEY")
 
-    # Open the PDF
-    with pdfplumber.open(file_obj) as pdf:
-        for page in pdf.pages:
-            # Extract all tables from each page
-            for table in page.extract_tables():
-                for row in table:
-                    # Skip empty or malformed rows
-                    if not row or len(row) < 9:
-                        continue
+def main(blob: func.InputStream):
+    logging.info(f"Processing file: {blob.name}, Size: {blob.length} bytes")
 
-                    date_raw = row[0]
+    # Init Form Recognizer client
+    document_analysis_client = DocumentAnalysisClient(
+        endpoint=endpoint, 
+        credential=AzureKeyCredential(key)
+    )
 
-                    # Check if the first cell looks like a date (e.g., 15/03/2025)
-                    if not re.match(r"\d{2}/\d{2}/\d{4}", date_raw or ""):
-                        continue
+    # Send file to Form Recognizer
+    poller = document_analysis_client.begin_analyze_document(
+        "prebuilt-document", blob.read()
+    )
+    result = poller.result()
 
-                    # Parse and split date
-                    try:
-                        date = pd.to_datetime(date_raw, dayfirst=True).date()
-                    except:
-                        continue
+    # Extract text and tables
+    extracted_data = []
+    for page in result.pages:
+        for line in page.lines:
+            extracted_data.append(line.content)
 
-                    # Transaction description
-                    transaction = row[1].strip() if row[1] else ""
+    for table in result.tables:
+        for cell in table.cells:
+            logging.info(f"Table cell ({cell.row_index},{cell.column_index}): {cell.content}")
+            extracted_data.append(cell.content)
 
-                    # Merchant Category (optional)
-                    merchant_category = row[4].strip() if row[4] else ""
+    logging.info(f"Extracted Data: {extracted_data[:20]}")  # Preview first 20
 
-                    # Amount cleanup
-                    amount_text = row[7].replace(",", "") if row[7] else ""
-                    amount = None
-                    credit_debit = ""
-
-                    if "Dr" in amount_text:
-                        amount = float(amount_text.replace("Dr", "").strip())
-                        credit_debit = "Debit"
-                    elif "Cr" in amount_text:
-                        amount = float(amount_text.replace("Cr", "").strip())
-                        credit_debit = "Credit"
-
-                    # Cashback (not used right now, but extracted)
-                    cashback = row[8].strip() if row[8] else ""
-
-                    # Build the row dictionary
-                    transactions.append({
-                        "Date": date,
-                        "Month": date.strftime("%B"),
-                        "Year": date.year,
-                        "Card": "Axis",
-                        "Card Type": "Credit",
-                        "Transaction": transaction,
-                        "Amount": amount,
-                        "Credit/Debit": credit_debit,
-                        "Sub-Category": "", # manual for now,
-                        "Category": ""  # manual for now
-                    })
-
-    return transactions
-
-def extract_hdfc_credit_transactions(file_obj, card_label):
-    """
-    Extracts transactions from an HDFC credit card PDF (Diners/Milli).
-    Returns a list of dictionaries in the unified schema.
-    `card_label` is either 'HDFC Diners' or 'HDFC Milli'
-    """
-    transactions = []
-
-    with pdfplumber.open(file_obj) as pdf:
-        for page in pdf.pages:
-            tables = page.extract_tables()
-
-            for table in tables:
-                # Check first row to see if it's a transaction table
-                header = table[0]
-                if not any("Desc" in str(cell) for cell in header if cell):
-                    continue  # skip non-transaction tables
-
-                for row in table:
-                    # Basic validation
-                    if not row or len(row) < 2:
-                        continue
-                        
-#                    print(row)
-                        
-                    # Check if the first item is a date
-                    date_raw = row[0]
-                    if not re.match(r"\d{2}/\d{2}/\d{4}", date_raw or ""):
-                        continue
-                    
-                    # Define summary/header keywords
-                    summary_keywords = [
-                        "TOTAL DUES", "REWARDS", "PAYMENT DUE DATE", "STATEMENT DATE",
-                        "MINIMUM AMOUNT", "CREDIT LIMIT", "CARD ENDING", "AVAILABLE CREDIT", "DUE DATE"
-                    ]
-
-                    # Skip rows where transaction detail contains summary phrases
-                    if any(keyword in (row[1] or "").upper() for keyword in summary_keywords):
-                        continue
-                            
-                    try:
-                        date = pd.to_datetime(date_raw, dayfirst=True).date()
-                    except:
-                        continue
-                        
-                    transaction = row[1].strip() if row[1] else ""
-
-                    # Try to locate amount in last 2 columns
-                    potential_amounts = row[-2:]  # e.g., ['500.00', 'Cr'] or ['1225.00 Cr', '']
-
-                    amount = None
-                    credit_debit = ""
-
-                    # Join both and look for Cr
-                    joined = " ".join(str(x) for x in potential_amounts if x)
-
-                    if "Cr" in joined:
-                        amt_match = re.search(r"([\d,]+\.\d{2})", joined)
-                        if amt_match:
-                            amount = float(amt_match.group(1).replace(",", ""))
-                        credit_debit = "Credit"
-                    else:
-                        amt_match = re.search(r"([\d,]+\.\d{2})", joined)
-                        if amt_match:
-                            amount = float(amt_match.group(1).replace(",", ""))
-                        credit_debit = "Debit"
-                   
-                    transactions.append({
-                        "Date": date,
-                        "Month": date.strftime("%B"),
-                        "Year": date.year,
-                        "Card": card_label,
-                        "Card Type": "Credit",
-                        "Transaction": transaction,
-                        "Amount": amount,
-                        "Credit/Debit": credit_debit,
-                        "Sub-Category": "",
-                        "Category": ""
-                    })
-
-    return transactions
-
-def extract_hdfc_savings_transactions(file_obj):
-    transactions = []
-    prev_balance = None  # used to detect Credit/Debit by comparing balance shifts
-
-    with pdfplumber.open(file_obj) as pdf:
-        for page in pdf.pages:
-            lines = page.extract_text().splitlines()
-            current_txn = {}
-
-            for line in lines:
-                line = line.strip()
-
-                # Detect transaction line: starts with date and ends with amount + balance
-                date_match = re.match(
-                    r"^(\d{2}/\d{2}/\d{2,4})\s+(.*?)\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})$", line
-                )
-
-                if date_match:
-                    # Save previous transaction
-                    if current_txn:
-                        transactions.append(current_txn)
-                        current_txn = {}
-
-                    date_raw, narration, amount_str, balance_str = date_match.groups()
-
-                    try:
-                        date = pd.to_datetime(date_raw, dayfirst=True).date()
-                        amount = float(amount_str.replace(",", ""))
-                        balance = float(balance_str.replace(",", ""))
-                    except:
-                        continue
-
-                    # Detect credit/debit from balance movement
-                    if prev_balance is not None:
-                        credit_debit = "Credit" if balance > prev_balance else "Debit"
-                    else:
-                        credit_debit = ""  # unknown for first txn
-
-                    prev_balance = balance  # update previous balance
-
-                    current_txn = {
-                        "Date": date,
-                        "Month": date.strftime("%B"),
-                        "Year": date.year,
-                        "Card": "HDFC Savings",
-                        "Card Type": "Savings",
-                        "Transaction": narration.strip(),
-                        "Amount": amount,
-                        "Credit/Debit": credit_debit,
-                        "Sub-Category": "",
-                        "Category": ""
-                    }
-
-                # Append continuation lines to narration
-                elif current_txn and "Transaction" in current_txn:
-                    current_txn["Transaction"] += " " + line.strip()
-
-            # Save final transaction
-            if current_txn:
-                transactions.append(current_txn)
-
-    return transactions
-
-# Make a copy to preserve full descriptions if needed later
-#df_combined["Transaction"] = df_combined["Transaction"].apply(
-#    lambda x: x[:60] + "..." if isinstance(x, str) and len(x) > 60 else x
-#)
-
-# Format the amount in INR
-#df_combined["Amount"] = df_combined["Amount"].apply(
-#    lambda x: f"₹{x:,.2f}" if pd.notnull(x) else ""
-#)
-
-def extract_all_transactions(file_obj, filename):
-    if "axis" in filename.lower():
-        return extract_axis_transactions(file_obj)
-    elif "diners" in filename.lower():
-        return extract_hdfc_credit_transactions(file_obj, "HDFC Diners")
-    elif "milli" in filename.lower():
-        return extract_hdfc_credit_transactions(file_obj, "HDFC Millennia")
-    elif "savings" in filename.lower():
-        return extract_hdfc_savings_transactions(file_obj)
-    else:
-        return []
-
-
-
+    # TODO: Insert extracted_data into SQL DB (Phase 1 continuation)
