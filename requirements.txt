@@ -1,19 +1,4 @@
-# Core Azure Functions runtime dependency
-azure-functions==1.19.0
-
-# Azure AI Form Recognizer
+azure-functions
 azure-ai-formrecognizer==3.3.0
-
-# Azure Blob Storage SDK
-azure-storage-blob==12.19.1
-
-# Common utilities
-requests==2.31.0
-pandas==2.2.2
-numpy==1.26.4
-
-# PDF parsing (choose depending on your code)
-PyPDF2==3.0.1
-
-# (Optional but common in parsing / ML pipelines)
-python-dateutil==2.9.0.post0
+azure-storage-blob==12.19.0
+pyodbc
