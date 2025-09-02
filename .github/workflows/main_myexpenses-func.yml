@@ -51,6 +51,10 @@ jobs:
             tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_CCA5575116C34D199DDAAC5C91C27F5C }}
             subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_F5BC864E89C14A2BA021371589BF45F6 }}
             
+        - name: Verify dependencies
+          run: |
+            pip freeze | grep azure-ai-formrecognizer || echo "azure-ai-formrecognizer not installed"
+
         - name: 'Deploy to Azure Functions'
           uses: Azure/functions-action@v1
           id: deploy-to-function
@@ -62,3 +66,4 @@ jobs:
             clean: 'true'
             scm-do-build-during-deployment: 'true'
             enable-oryx-build: true
+
