@@ -1,7 +1,4 @@
 azure-functions
-pyodbc
-azure-storage-blob
-azure-functions
 azure-ai-formrecognizer==3.3.0
-azure-core
-
+azure-storage-blob
+requests
